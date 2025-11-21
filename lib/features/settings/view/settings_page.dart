@@ -100,7 +100,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage>
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Network devices',
+                  'Nearby Bluetooth devices',
                   style: Theme.of(context).textTheme.titleMedium ??
                       Theme.of(context).textTheme.titleLarge,
                 ),
@@ -174,7 +174,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage>
               )
             else if (settings.devices.isEmpty)
               const Text(
-                'Start a scan to discover Wi-Fi networks and Bluetooth printers.',
+                'Start a scan to discover nearby Bluetooth printers or earbuds.',
               )
             else
               _DeviceDropdown(
@@ -326,8 +326,7 @@ class _DeviceDropdown extends StatelessWidget {
           try {
             final deviceName =
                 device.name.isNotEmpty ? device.name : 'Unknown device';
-            // Use toString().split('.') to safely get enum name
-            final typeName = device.type.toString().split('.').last;
+            final typeName = device.type.label;
             return DropdownMenuItem(
               value: device,
               child: Text('$deviceName • $typeName'),

@@ -50,8 +50,8 @@
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>Bluetooth access is required to communicate with printers.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Location access is required to scan for Wi-Fi networks.</string>
+	<string>Location access is required to discover nearby Bluetooth accessories.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Location access is required to scan for Wi-Fi networks.</string>
+	<string>Location access is required to discover nearby Bluetooth accessories.</string>
 </dict>
 </plist>

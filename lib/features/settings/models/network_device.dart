@@ -1,4 +1,8 @@
-enum NetworkDeviceType { wifi, bluetooth }
+enum NetworkDeviceType {
+  bluetoothPrinter,
+  bluetoothEarbuds,
+  bluetoothOther,
+}
 
 class NetworkDevice {
   const NetworkDevice({
@@ -17,3 +21,15 @@ class NetworkDevice {
   String toString() => '$name ($type)';
 }
 
+extension NetworkDeviceTypeLabel on NetworkDeviceType {
+  String get label {
+    switch (this) {
+      case NetworkDeviceType.bluetoothPrinter:
+        return 'Bluetooth printer';
+      case NetworkDeviceType.bluetoothEarbuds:
+        return 'Bluetooth earbuds';
+      case NetworkDeviceType.bluetoothOther:
+        return 'Bluetooth device';
+    }
+  }
+}

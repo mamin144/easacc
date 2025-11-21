@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:wifi_iot/wifi_iot.dart';
 
 import '../models/network_device.dart';
 import '../state/settings_state.dart';
@@ -33,20 +32,11 @@ class SettingsController extends StateNotifier<SettingsState> {
       final granted = await _ensurePermissions();
       if (!granted) {
         throw const SettingsException(
-          'Permissions are required to scan for network devices. Please grant location, Bluetooth, and Wi-Fi permissions.',
+          'Permissions are required to scan for nearby Bluetooth accessories. Please grant location and Bluetooth permissions.',
         );
       }
 
-      // Use try-catch for each discovery method to prevent one from crashing the other
-      List<NetworkDevice> wifiDevices = [];
       List<NetworkDevice> bluetoothDevices = [];
-
-      try {
-        wifiDevices = await _discoverWifiNetworks();
-      } catch (e) {
-        // Log error but continue with Bluetooth scanning
-        wifiDevices = [];
-      }
 
       try {
         bluetoothDevices = await _discoverBluetoothDevices();
@@ -55,11 +45,11 @@ class SettingsController extends StateNotifier<SettingsState> {
         bluetoothDevices = [];
       }
 
-      final devices = [...wifiDevices, ...bluetoothDevices];
+      final devices = [...bluetoothDevices];
 
       if (devices.isEmpty) {
         throw const SettingsException(
-          'No devices found. Make sure Bluetooth is enabled and Wi-Fi is on. Try moving closer to devices.',
+          'No devices found. Make sure Bluetooth is enabled and move closer to the printer or earbuds you expect to pair with.',
         );
       }
 
@@ -91,11 +81,6 @@ class SettingsController extends StateNotifier<SettingsState> {
       Permission.bluetoothConnect,
     ];
 
-    final optionalPermissions = <Permission>[
-      // nearbyWifiDevices is optional (Android 13+ only)
-      if (Platform.isAndroid) Permission.nearbyWifiDevices,
-    ];
-
     // Request required permissions
     final requiredResults = await Future.wait(
       requiredPermissions.map((p) => p.request()),
@@ -105,64 +90,7 @@ class SettingsController extends StateNotifier<SettingsState> {
     final allRequiredGranted =
         requiredResults.every((status) => status.isGranted);
 
-    // Try to request optional permissions, but don't fail if they're not granted
-    for (final permission in optionalPermissions) {
-      try {
-        final status = await permission.status;
-        if (!status.isGranted) {
-          await permission.request();
-        }
-      } catch (e) {
-        // Ignore errors for optional permissions
-      }
-    }
-
     return allRequiredGranted;
-  }
-
-  Future<List<NetworkDevice>> _discoverWifiNetworks() async {
-    if (!Platform.isAndroid) {
-      return [];
-    }
-
-    try {
-      final isEnabled = await WiFiForIoTPlugin.isEnabled();
-      if (!isEnabled) {
-        await WiFiForIoTPlugin.setEnabled(true, shouldOpenSettings: true);
-        // Wait a bit for Wi-Fi to enable
-        await Future<void>.delayed(const Duration(seconds: 1));
-      }
-
-      final networks = await WiFiForIoTPlugin.loadWifiList();
-      if (networks.isEmpty) {
-        return [];
-      }
-
-      // Deduplicate by SSID
-      final seenSsids = <String>{};
-      return networks
-          .where((network) {
-            final ssid = network.ssid ?? '';
-            if (ssid.isEmpty || seenSsids.contains(ssid)) return false;
-            seenSsids.add(ssid);
-            return true;
-          })
-          .map(
-            (network) => NetworkDevice(
-              id: network.bssid ??
-                  network.ssid ??
-                  DateTime.now().toIso8601String(),
-              name: network.ssid ?? 'Wi-Fi device',
-              address: network.bssid,
-              type: NetworkDeviceType.wifi,
-            ),
-          )
-          .toList();
-    } catch (e) {
-      // Wi-Fi scanning might fail due to permissions or platform limitations
-      // Return empty list instead of throwing to allow Bluetooth scanning to continue
-      return [];
-    }
   }
 
   Future<List<NetworkDevice>> _discoverBluetoothDevices() async {
@@ -206,12 +134,13 @@ class SettingsController extends StateNotifier<SettingsState> {
           // Safely access device properties with try-catch to handle any null issues
           final id = result.device.remoteId.str;
           final platformName = result.device.platformName;
+          final inferredType = _inferDeviceType(platformName);
 
           return NetworkDevice(
             id: id.isNotEmpty ? id : DateTime.now().toIso8601String(),
             name: platformName.isNotEmpty ? platformName : 'Bluetooth device',
             address: id.isNotEmpty ? id : null,
-            type: NetworkDeviceType.bluetooth,
+            type: inferredType,
           );
         } catch (e) {
           // Return a default device if there's any error accessing device properties
@@ -220,11 +149,53 @@ class SettingsController extends StateNotifier<SettingsState> {
             id: DateTime.now().toIso8601String(),
             name: 'Bluetooth device',
             address: null,
-            type: NetworkDeviceType.bluetooth,
+            type: NetworkDeviceType.bluetoothOther,
           );
         }
       },
     ).toList();
+  }
+
+  NetworkDeviceType _inferDeviceType(String rawName) {
+    final normalized = rawName.toLowerCase().trim();
+    if (normalized.isEmpty) {
+      return NetworkDeviceType.bluetoothOther;
+    }
+
+    const printerKeywords = [
+      'printer',
+      'hp',
+      'epson',
+      'canon',
+      'brother',
+      'zebra',
+      'bixolon',
+      'star',
+      'pos',
+      'thermal',
+    ];
+
+    const earbudKeywords = [
+      'airpod',
+      'airpods',
+      'earbud',
+      'earbuds',
+      'buds',
+      'galaxy buds',
+      'beats',
+      'freebuds',
+      'nothing ear',
+    ];
+
+    if (printerKeywords.any((keyword) => normalized.contains(keyword))) {
+      return NetworkDeviceType.bluetoothPrinter;
+    }
+
+    if (earbudKeywords.any((keyword) => normalized.contains(keyword))) {
+      return NetworkDeviceType.bluetoothEarbuds;
+    }
+
+    return NetworkDeviceType.bluetoothOther;
   }
 }
 

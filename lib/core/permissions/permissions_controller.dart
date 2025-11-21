@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -46,7 +44,6 @@ class PermissionsController extends StateNotifier<PermissionsState> {
   Future<void> _checkPermissions() async {
     state = state.copyWith(isChecking: true, clearError: true);
     final permissions = _getRequiredPermissions();
-    final optionalPermissions = _getOptionalPermissions();
     final statuses = await Future.wait(
       permissions.map((p) => p.status),
     );
@@ -59,9 +56,7 @@ class PermissionsController extends StateNotifier<PermissionsState> {
       final missingPermissions = <String>[];
       for (int i = 0; i < permissions.length; i++) {
         final permission = permissions[i];
-        // Skip optional permissions - they're not required
-        if (!optionalPermissions.contains(permission) &&
-            !statuses[i].isGranted) {
+        if (!statuses[i].isGranted) {
           missingPermissions.add(_getPermissionName(permission));
         }
       }
@@ -75,7 +70,6 @@ class PermissionsController extends StateNotifier<PermissionsState> {
               'Missing permissions: $missingList. Please grant all permissions to continue.',
         );
       } else {
-        // Only optional permissions are missing, which is OK
         state = state.copyWith(
           hasAllPermissions: true,
           isChecking: false,
@@ -91,25 +85,13 @@ class PermissionsController extends StateNotifier<PermissionsState> {
 
   List<Permission> _getRequiredPermissions() {
     return [
-      // Location is required for Wi-Fi scanning on older Android versions
+      // Location is required on Android to run Bluetooth scans in the background
       Permission.locationWhenInUse,
       // Bluetooth runtime permissions (Android 12+ granular permissions)
       Permission.bluetooth,
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
       Permission.bluetoothAdvertise,
-      // Android 13+ permission for nearby Wi-Fi devices (optional - only required on Android 13+)
-      if (Platform.isAndroid) Permission.nearbyWifiDevices,
-    ];
-  }
-
-  /// Returns permissions that are optional and won't cause the app to fail
-  /// if they're not granted. These are typically version-specific permissions.
-  List<Permission> _getOptionalPermissions() {
-    return [
-      // nearbyWifiDevices is only required on Android 13+ (API 33+)
-      // On older versions or if not granted, we can still function with location permission
-      if (Platform.isAndroid) Permission.nearbyWifiDevices,
     ];
   }
 
@@ -124,8 +106,6 @@ class PermissionsController extends StateNotifier<PermissionsState> {
       return 'Bluetooth Advertise';
     } else if (permission == Permission.bluetooth) {
       return 'Bluetooth';
-    } else if (permission == Permission.nearbyWifiDevices) {
-      return 'Nearby Wi-Fi Devices';
     }
     return permission.toString();
   }
@@ -136,7 +116,6 @@ class PermissionsController extends StateNotifier<PermissionsState> {
   Future<Map<String, PermissionStatus>> requestAllPermissions() async {
     state = state.copyWith(isChecking: true, clearError: true);
     final permissions = _getRequiredPermissions();
-    final optionalPermissions = _getOptionalPermissions();
     final Map<String, PermissionStatus> results = {};
 
     try {
@@ -146,9 +125,7 @@ class PermissionsController extends StateNotifier<PermissionsState> {
       }
 
       // Check if all required (non-optional) permissions are granted
-      final requiredPermissions =
-          permissions.where((p) => !optionalPermissions.contains(p)).toList();
-      final allRequiredGranted = requiredPermissions
+      final allRequiredGranted = permissions
           .every((p) => results[_getPermissionName(p)]?.isGranted ?? false);
 
       state = state.copyWith(
@@ -169,7 +146,6 @@ class PermissionsController extends StateNotifier<PermissionsState> {
 
     try {
       final permissions = _getRequiredPermissions();
-      final optionalPermissions = _getOptionalPermissions();
       final results = await Future.wait(
         permissions.map((p) => p.request()),
       );
@@ -178,9 +154,7 @@ class PermissionsController extends StateNotifier<PermissionsState> {
       final missingPermissions = <String>[];
       for (int i = 0; i < permissions.length; i++) {
         final permission = permissions[i];
-        // Skip optional permissions - they're not required
-        if (!optionalPermissions.contains(permission) &&
-            !results[i].isGranted) {
+        if (!results[i].isGranted) {
           missingPermissions.add(_getPermissionName(permission));
         }
       }
@@ -245,7 +219,6 @@ Future<void> dumpPermissionStatuses() async {
     Permission.bluetooth,
     Permission.bluetoothScan,
     Permission.bluetoothConnect,
-    if (Platform.isAndroid) Permission.nearbyWifiDevices,
   ];
 
   for (final p in permissions) {

@@ -94,19 +94,15 @@ class _PermissionsPageState extends ConsumerState<PermissionsPage>
               _PermissionItem(
                 icon: Icons.location_on,
                 title: 'Location',
-                description: 'Required to scan for Wi-Fi networks',
+                description:
+                    'Required by Android to discover nearby Bluetooth devices',
               ),
               const SizedBox(height: 16),
               _PermissionItem(
                 icon: Icons.bluetooth,
                 title: 'Bluetooth',
-                description: 'Required to discover Bluetooth printers',
-              ),
-              const SizedBox(height: 16),
-              _PermissionItem(
-                icon: Icons.wifi,
-                title: 'Wi-Fi',
-                description: 'Required to scan for network devices',
+                description:
+                    'Needed to scan for printers, earbuds, and other accessories',
               ),
               const Spacer(),
               if (permissionsState.error != null)
