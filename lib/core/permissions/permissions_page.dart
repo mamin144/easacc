@@ -1,26 +1,24 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../routing/app_router.dart';
 import 'permissions_controller.dart';
 
-class PermissionsPage extends ConsumerStatefulWidget {
+class PermissionsPage extends StatefulWidget {
   const PermissionsPage({super.key});
 
   @override
-  ConsumerState<PermissionsPage> createState() => _PermissionsPageState();
+  State<PermissionsPage> createState() => _PermissionsPageState();
 }
 
-class _PermissionsPageState extends ConsumerState<PermissionsPage>
+class _PermissionsPageState extends State<PermissionsPage>
     with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Trigger an explicit permissions check when the PermissionsPage is shown
-    // so the app does not perform permission checks at startup.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(permissionsControllerProvider.notifier).recheckPermissions();
+      context.read<PermissionsCubit>().recheckPermissions();
     });
   }
 
@@ -33,143 +31,148 @@ class _PermissionsPageState extends ConsumerState<PermissionsPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // Recheck permissions when app resumes (user might have granted them in settings)
-      ref.read(permissionsControllerProvider.notifier).recheckPermissions();
+      context.read<PermissionsCubit>().recheckPermissions();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final permissionsState = ref.watch(permissionsControllerProvider);
-    final controller = ref.read(permissionsControllerProvider.notifier);
-
-    // Navigate to settings once permissions are granted
-    if (permissionsState.hasAllPermissions && !permissionsState.isChecking) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
+    return BlocConsumer<PermissionsCubit, PermissionsState>(
+      listenWhen: (previous, current) =>
+          previous.hasAllPermissions != current.hasAllPermissions ||
+          previous.error != current.error,
+      listener: (context, state) {
+        if (state.hasAllPermissions && !state.isChecking && mounted) {
           Navigator.of(context).pushReplacementNamed(AppRoutes.settings);
         }
-      });
-    }
+        if (state.error != null && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(state.error ?? 'An error occurred')),
+          );
+        }
+      },
+      builder: (context, permissionsState) {
+        final controller = context.read<PermissionsCubit>();
 
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            // If we can pop, go back to previous route (usually Settings).
-            // Otherwise, ensure the Settings page is shown.
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
-            } else {
-              Navigator.of(context).pushReplacementNamed(AppRoutes.settings);
-            }
-          },
-        ),
-        title: const Text('Permissions'),
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.security,
-                size: 80,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              const SizedBox(height: 24),
-              Text(
-                'Permissions Required',
-                style: Theme.of(context).textTheme.headlineSmall,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'This app needs the following permissions to function:',
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              _PermissionItem(
-                icon: Icons.location_on,
-                title: 'Location',
-                description:
-                    'Required by Android to discover nearby Bluetooth devices',
-              ),
-              const SizedBox(height: 16),
-              _PermissionItem(
-                icon: Icons.bluetooth,
-                title: 'Bluetooth',
-                description:
-                    'Needed to scan for printers, earbuds, and other accessories',
-              ),
-              const Spacer(),
-              if (permissionsState.error != null)
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.errorContainer,
-                    borderRadius: BorderRadius.circular(8),
+        return Scaffold(
+          appBar: AppBar(
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () {
+                if (Navigator.of(context).canPop()) {
+                  Navigator.of(context).pop();
+                } else {
+                  Navigator.of(context)
+                      .pushReplacementNamed(AppRoutes.settings);
+                }
+              },
+            ),
+            title: const Text('Permissions'),
+          ),
+          body: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.security,
+                    size: 80,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.error_outline,
-                        color: Theme.of(context).colorScheme.onErrorContainer,
+                  const SizedBox(height: 24),
+                  Text(
+                    'Permissions Required',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'This app needs the following permissions to function:',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+                  const _PermissionItem(
+                    icon: Icons.location_on,
+                    title: 'Location',
+                    description:
+                        'Required by Android to discover nearby Bluetooth devices',
+                  ),
+                  const SizedBox(height: 16),
+                  const _PermissionItem(
+                    icon: Icons.bluetooth,
+                    title: 'Bluetooth',
+                    description:
+                        'Needed to scan for printers, earbuds, and other accessories',
+                  ),
+                  const Spacer(),
+                  if (permissionsState.error != null)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.errorContainer,
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          permissionsState.error ?? 'An error occurred',
-                          style: TextStyle(
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.error_outline,
                             color:
                                 Theme.of(context).colorScheme.onErrorContainer,
                           ),
-                        ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              permissionsState.error ?? 'An error occurred',
+                              style: TextStyle(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onErrorContainer,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
-              if (permissionsState.isChecking)
-                const CircularProgressIndicator()
-              else
-                FilledButton(
-                  onPressed: () => controller.requestPermissions(),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 32,
-                      vertical: 16,
                     ),
-                    minimumSize: const Size(double.infinity, 56),
-                  ),
-                  child: const Text('Grant Permissions'),
-                ),
-              if (permissionsState.error != null &&
-                  (permissionsState.error?.contains('permanently denied') ??
-                      false))
-                const SizedBox(height: 12),
-              if (permissionsState.error != null &&
-                  (permissionsState.error?.contains('permanently denied') ??
-                      false))
-                OutlinedButton(
-                  onPressed: () {
-                    controller.openSettings();
-                  },
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 32,
-                      vertical: 16,
+                  if (permissionsState.isChecking)
+                    const CircularProgressIndicator()
+                  else
+                    FilledButton(
+                      onPressed: controller.requestPermissions,
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 32,
+                          vertical: 16,
+                        ),
+                        minimumSize: const Size(double.infinity, 56),
+                      ),
+                      child: const Text('Grant Permissions'),
                     ),
-                    minimumSize: const Size(double.infinity, 56),
-                  ),
-                  child: const Text('Open App Settings'),
-                ),
-            ],
+                  if (permissionsState.error != null &&
+                      (permissionsState.error?.contains('permanently denied') ??
+                          false))
+                    const SizedBox(height: 12),
+                  if (permissionsState.error != null &&
+                      (permissionsState.error?.contains('permanently denied') ??
+                          false))
+                    OutlinedButton(
+                      onPressed: controller.openSettings,
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 32,
+                          vertical: 16,
+                        ),
+                        minimumSize: const Size(double.infinity, 56),
+                      ),
+                      child: const Text('Open App Settings'),
+                    ),
+                ],
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

@@ -1,32 +1,27 @@
 import 'dart:io';
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../models/network_device.dart';
 import '../state/settings_state.dart';
 
-final settingsControllerProvider =
-    StateNotifierProvider<SettingsController, SettingsState>((ref) {
-  return SettingsController();
-});
-
-class SettingsController extends StateNotifier<SettingsState> {
-  SettingsController() : super(SettingsState.initial());
+class SettingsCubit extends Cubit<SettingsState> {
+  SettingsCubit() : super(SettingsState.initial());
 
   void updateTargetUrl(String url) {
     final sanitized = url.trim();
     final fallback = sanitized.isEmpty ? state.targetUrl : sanitized;
-    state = state.copyWith(targetUrl: fallback);
+    emit(state.copyWith(targetUrl: fallback));
   }
 
   void selectDevice(NetworkDevice? device) {
-    state = state.copyWith(selectedDevice: device);
+    emit(state.copyWith(selectedDevice: device));
   }
 
   Future<void> scanForDevices() async {
-    state = state.copyWith(isScanning: true, error: null, clearError: true);
+    emit(state.copyWith(isScanning: true, error: null, clearError: true));
 
     try {
       final granted = await _ensurePermissions();
@@ -41,7 +36,6 @@ class SettingsController extends StateNotifier<SettingsState> {
       try {
         bluetoothDevices = await _discoverBluetoothDevices();
       } catch (e) {
-        // Log error but continue
         bluetoothDevices = [];
       }
 
@@ -53,24 +47,23 @@ class SettingsController extends StateNotifier<SettingsState> {
         );
       }
 
-      state = state.copyWith(
+      emit(state.copyWith(
         devices: devices,
         isScanning: false,
         selectedDevice: devices.isEmpty ? null : devices.first,
-      );
+      ));
     } on SettingsException catch (error) {
-      state = state.copyWith(
+      emit(state.copyWith(
         isScanning: false,
         error: error.message,
         clearError: false,
-      );
+      ));
     } catch (error) {
-      // Catch any null check errors or other exceptions
-      state = state.copyWith(
+      emit(state.copyWith(
         isScanning: false,
         error: 'Scan failed: ${error.toString()}',
         clearError: false,
-      );
+      ));
     }
   }
 
@@ -81,12 +74,10 @@ class SettingsController extends StateNotifier<SettingsState> {
       Permission.bluetoothConnect,
     ];
 
-    // Request required permissions
     final requiredResults = await Future.wait(
       requiredPermissions.map((p) => p.request()),
     );
 
-    // Check if all required permissions are granted
     final allRequiredGranted =
         requiredResults.every((status) => status.isGranted);
 
@@ -98,8 +89,8 @@ class SettingsController extends StateNotifier<SettingsState> {
       return [];
     }
 
-    final isOn = await FlutterBluePlus.isOn;
-    if (!isOn) {
+    final adapterState = await FlutterBluePlus.adapterState.first;
+    if (adapterState != BluetoothAdapterState.on) {
       throw const SettingsException('Bluetooth is turned off.');
     }
 
@@ -111,12 +102,10 @@ class SettingsController extends StateNotifier<SettingsState> {
     });
 
     await FlutterBluePlus.startScan(timeout: scanDuration);
-    // Wait for the full scan duration to collect results
     await Future<void>.delayed(scanDuration);
     await FlutterBluePlus.stopScan();
     await subscription.cancel();
 
-    // Deduplicate devices by ID
     final seenIds = <String>{};
     return latest.where((result) {
       try {
@@ -125,13 +114,11 @@ class SettingsController extends StateNotifier<SettingsState> {
         seenIds.add(id);
         return true;
       } catch (e) {
-        // Skip devices with invalid IDs - catch any null check errors
         return false;
       }
     }).map(
       (result) {
         try {
-          // Safely access device properties with try-catch to handle any null issues
           final id = result.device.remoteId.str;
           final platformName = result.device.platformName;
           final inferredType = _inferDeviceType(platformName);
@@ -143,8 +130,6 @@ class SettingsController extends StateNotifier<SettingsState> {
             type: inferredType,
           );
         } catch (e) {
-          // Return a default device if there's any error accessing device properties
-          // This catches null check operator errors and other exceptions
           return NetworkDevice(
             id: DateTime.now().toIso8601String(),
             name: 'Bluetooth device',

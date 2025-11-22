@@ -1,17 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../settings/controller/settings_controller.dart';
+import '../../settings/state/settings_state.dart';
 
-class WebViewPage extends ConsumerStatefulWidget {
+class WebViewPage extends StatefulWidget {
   const WebViewPage({super.key});
 
   @override
-  ConsumerState<WebViewPage> createState() => _WebViewPageState();
+  State<WebViewPage> createState() => _WebViewPageState();
 }
 
-class _WebViewPageState extends ConsumerState<WebViewPage> {
+class _WebViewPageState extends State<WebViewPage> {
   late final WebViewController _controller;
   String? _lastLoadedUrl;
 
@@ -24,10 +25,6 @@ class _WebViewPageState extends ConsumerState<WebViewPage> {
         NavigationDelegate(
           onWebResourceError: (error) {
             if (!mounted) return;
-            // ScaffoldMessenger.of(context).showSnackBar(
-            //   SnackBar(
-            //       content: Text(error.description ?? 'Web resource error')),
-            // );
           },
         ),
       );
@@ -35,29 +32,31 @@ class _WebViewPageState extends ConsumerState<WebViewPage> {
 
   @override
   Widget build(BuildContext context) {
-    final url = ref.watch(
-      settingsControllerProvider.select((state) => state.targetUrl),
-    );
+    return BlocBuilder<SettingsCubit, SettingsState>(
+      builder: (context, state) {
+        final url = state.targetUrl;
 
-    if (_lastLoadedUrl != url) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _loadUrl(url);
-      });
-      _lastLoadedUrl = url;
-    }
+        if (_lastLoadedUrl != url) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _loadUrl(url);
+          });
+          _lastLoadedUrl = url;
+        }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('WebView'),
-        actions: [
-          IconButton(
-            onPressed: () => _loadUrl(url),
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Reload',
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('WebView'),
+            actions: [
+              IconButton(
+                onPressed: () => _loadUrl(url),
+                icon: const Icon(Icons.refresh),
+                tooltip: 'Reload',
+              ),
+            ],
           ),
-        ],
-      ),
-      body: SafeArea(child: WebViewWidget(controller: _controller)),
+          body: SafeArea(child: WebViewWidget(controller: _controller)),
+        );
+      },
     );
   }
 

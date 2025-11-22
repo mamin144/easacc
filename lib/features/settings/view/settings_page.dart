@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../../core/permissions/permissions_controller.dart';
 import '../../auth/controller/auth_controller.dart';
@@ -9,25 +9,34 @@ import '../controller/settings_controller.dart';
 import '../models/network_device.dart';
 import '../state/settings_state.dart';
 
-class SettingsPage extends ConsumerStatefulWidget {
+class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
 
   @override
-  ConsumerState<SettingsPage> createState() => _SettingsPageState();
+  State<SettingsPage> createState() => _SettingsPageState();
 }
 
-class _SettingsPageState extends ConsumerState<SettingsPage>
+class _SettingsPageState extends State<SettingsPage>
     with WidgetsBindingObserver {
-  late TextEditingController _urlController;
+  late final TextEditingController _urlController;
   bool _isRequestingPermissions = false;
+  bool _didInitUrl = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    final initialUrl =
-        ref.read(settingsControllerProvider.select((s) => s.targetUrl));
-    _urlController = TextEditingController(text: initialUrl);
+    _urlController = TextEditingController();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_didInitUrl) {
+      final initialUrl = context.read<SettingsCubit>().state.targetUrl;
+      _urlController.text = initialUrl;
+      _didInitUrl = true;
+    }
   }
 
   @override
@@ -41,255 +50,256 @@ class _SettingsPageState extends ConsumerState<SettingsPage>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
-      // Re-check permissions when returning from App Settings
-      ref.read(permissionsControllerProvider.notifier).recheckPermissions();
+      context.read<PermissionsCubit>().recheckPermissions();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Listen for state errors and show a SnackBar. ref.listen must be called
-    // inside the build method (ConsumerWidget/ConsumerState build).
-    ref.listen<SettingsState>(settingsControllerProvider, (previous, next) {
-      if (next.error != null && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(next.error ?? 'An error occurred')),
-        );
-      }
-    });
+    final settingsCubit = context.read<SettingsCubit>();
+    final permissionsCubit = context.read<PermissionsCubit>();
+    final authCubit = context.read<AuthCubit>();
 
-    final settings = ref.watch(settingsControllerProvider);
-    final notifier = ref.read(settingsControllerProvider.notifier);
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings'),
-        actions: [
-          IconButton(
-            tooltip: 'Open web view',
-            onPressed: () {
-              Navigator.of(context).pushNamed(AppRoutes.webView);
-            },
-            icon: const Icon(Icons.open_in_browser),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(24),
-          children: [
-            Text(
-              'Website source',
-              style: Theme.of(context).textTheme.titleMedium ??
-                  Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _urlController,
-              decoration: const InputDecoration(
-                labelText: 'Web URL',
-                helperText: 'This URL will be rendered in the WebView page.',
-              ),
-              keyboardType: TextInputType.url,
-              textInputAction: TextInputAction.done,
-              onSubmitted: notifier.updateTargetUrl,
-              onChanged: notifier.updateTargetUrl,
-            ),
-            const SizedBox(height: 32),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Nearby Bluetooth devices',
-                  style: Theme.of(context).textTheme.titleMedium ??
-                      Theme.of(context).textTheme.titleLarge,
-                ),
-                Row(
-                  children: [
-                    FilledButton.icon(
-                      onPressed: settings.isScanning
-                          ? null
-                          : () async {
-                              final permController = ref
-                                  .read(permissionsControllerProvider.notifier);
-                              final has =
-                                  await permController.checkPermissions();
-                              if (!has) {
-                                // Request permissions directly instead of navigating to permissions page
-                                await permController.requestPermissions();
-                                // Re-check after requesting
-                                final hasAfterRequest =
-                                    await permController.checkPermissions();
-                                if (!hasAfterRequest && mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                          'Permissions are required to scan for devices. Please grant all permissions.'),
-                                    ),
-                                  );
-                                  return;
-                                }
-                              }
-
-                              await notifier.scanForDevices();
-                            },
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Scan'),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
+    return BlocListener<SettingsCubit, SettingsState>(
+      listenWhen: (previous, next) => previous.error != next.error,
+      listener: (context, state) {
+        if (state.error != null && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(state.error ?? 'An error occurred')),
+          );
+        }
+      },
+      child: BlocBuilder<SettingsCubit, SettingsState>(
+        builder: (context, settings) {
+          return Scaffold(
+            appBar: AppBar(
+              title: const Text('Settings'),
+              actions: [
+                IconButton(
+                  tooltip: 'Open web view',
+                  onPressed: () {
+                    Navigator.of(context).pushNamed(AppRoutes.webView);
+                  },
+                  icon: const Icon(Icons.open_in_browser),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            if (settings.isScanning)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (settings.error != null)
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.errorContainer,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.error_outline,
-                      color: Theme.of(context).colorScheme.onErrorContainer,
+            body: SafeArea(
+              child: ListView(
+                padding: const EdgeInsets.all(24),
+                children: [
+                  Text(
+                    'Website source',
+                    style: Theme.of(context).textTheme.titleMedium ??
+                        Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _urlController,
+                    decoration: const InputDecoration(
+                      labelText: 'Web URL',
+                      helperText:
+                          'This URL will be rendered in the WebView page.',
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        settings.error ?? 'An error occurred',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onErrorContainer,
-                        ),
+                    keyboardType: TextInputType.url,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: settingsCubit.updateTargetUrl,
+                    onChanged: settingsCubit.updateTargetUrl,
+                  ),
+                  const SizedBox(height: 32),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Nearby Bluetooth devices',
+                        style: Theme.of(context).textTheme.titleMedium ??
+                            Theme.of(context).textTheme.titleLarge,
                       ),
-                    ),
-                  ],
-                ),
-              )
-            else if (settings.devices.isEmpty)
-              const Text(
-                'Start a scan to discover nearby Bluetooth printers or earbuds.',
-              )
-            else
-              _DeviceDropdown(
-                devices: settings.devices,
-                selected: settings.selectedDevice,
-                onChanged: notifier.selectDevice,
-              ),
-            const SizedBox(height: 32),
-            // Request permissions button moved here (below device dropdown)
-            OutlinedButton.icon(
-              onPressed: _isRequestingPermissions
-                  ? null
-                  : () async {
-                      setState(() {
-                        _isRequestingPermissions = true;
-                      });
-                      try {
-                        final controller =
-                            ref.read(permissionsControllerProvider.notifier);
-                        final results =
-                            await controller.requestAllPermissions();
+                      Row(
+                        children: [
+                          FilledButton.icon(
+                            onPressed: settings.isScanning
+                                ? null
+                                : () async {
+                                    final has = await permissionsCubit
+                                        .checkPermissions();
+                                    if (!has) {
+                                      await permissionsCubit
+                                          .requestPermissions();
+                                      final hasAfterRequest =
+                                          await permissionsCubit
+                                              .checkPermissions();
+                                      if (!hasAfterRequest) {
+                                        if (!context.mounted) return;
+                                        if (!mounted) return;
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                                'Permissions are required to scan for devices. Please grant all permissions.'),
+                                          ),
+                                        );
+                                        return;
+                                      }
+                                    }
 
-                        final lines = results.entries.map((e) {
-                          final status = e.value;
-                          final stateText = status.isGranted
-                              ? 'granted'
-                              : status.isPermanentlyDenied
-                                  ? 'permanently denied'
-                                  : status.isDenied
-                                      ? 'denied'
-                                      : status.toString();
-                          return '${e.key}: $stateText';
-                        }).toList();
-
-                        final message = lines.join('\n');
-                        if (!mounted) return;
-                        // Show results and await for the user to dismiss the dialog.
-                        await showDialog<void>(
-                          context: context,
-                          builder: (ctx) => AlertDialog(
-                            title: const Text('Permission results'),
-                            content:
-                                SingleChildScrollView(child: Text(message)),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.of(ctx).pop(),
-                                child: const Text('Close'),
-                              ),
-                              if (results.values
-                                  .any((s) => s.isPermanentlyDenied))
-                                TextButton(
-                                  onPressed: () {
-                                    Navigator.of(ctx).pop();
-                                    controller.openSettings();
+                                    await settingsCubit.scanForDevices();
                                   },
-                                  child: const Text('Open App Settings'),
-                                ),
-                            ],
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Scan'),
                           ),
-                        );
-
-                        // If any permission is permanently denied, open App Settings
-                        // automatically after the user dismisses the results dialog.
-                        if (results.values.any((s) => s.isPermanentlyDenied)) {
-                          // Small delay so the dialog fully dismisses before opening
-                          // system settings (avoids UI race conditions).
-                          await Future<void>.delayed(
-                              const Duration(milliseconds: 200));
-                          await controller.openSettings();
-                        }
-                      } finally {
-                        if (mounted) {
-                          setState(() {
-                            _isRequestingPermissions = false;
-                          });
-                        }
-                      }
-                    },
-              icon: _isRequestingPermissions
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                          const SizedBox(width: 8),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (settings.isScanning)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: Center(child: CircularProgressIndicator()),
                     )
-                  : const Icon(Icons.lock_open),
-              label: const Text('Request permissions'),
-            ),
-            const SizedBox(height: 12),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pushNamed(
-                AppRoutes.webView,
+                  else if (settings.error != null)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.errorContainer,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.error_outline,
+                            color:
+                                Theme.of(context).colorScheme.onErrorContainer,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              settings.error ?? 'An error occurred',
+                              style: TextStyle(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onErrorContainer,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (settings.devices.isEmpty)
+                    const Text(
+                      'Start a scan to discover nearby Bluetooth printers or earbuds.',
+                    )
+                  else
+                    _DeviceDropdown(
+                      devices: settings.devices,
+                      selected: settings.selectedDevice,
+                      onChanged: settingsCubit.selectDevice,
+                    ),
+                  const SizedBox(height: 32),
+                  OutlinedButton.icon(
+                    onPressed: _isRequestingPermissions
+                        ? null
+                        : () async {
+                            setState(() {
+                              _isRequestingPermissions = true;
+                            });
+                            try {
+                              final results = await permissionsCubit
+                                  .requestAllPermissions();
+
+                              final lines = results.entries.map((e) {
+                                final status = e.value;
+                                final stateText = status.isGranted
+                                    ? 'granted'
+                                    : status.isPermanentlyDenied
+                                        ? 'permanently denied'
+                                        : status.isDenied
+                                            ? 'denied'
+                                            : status.toString();
+                                return '${e.key}: $stateText';
+                              }).toList();
+
+                              final message = lines.join('\n');
+                              if (!context.mounted) return;
+                              if (!mounted) return;
+                              await showDialog<void>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text('Permission results'),
+                                  content: SingleChildScrollView(
+                                      child: Text(message)),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.of(ctx).pop(),
+                                      child: const Text('Close'),
+                                    ),
+                                    if (results.values
+                                        .any((s) => s.isPermanentlyDenied))
+                                      TextButton(
+                                        onPressed: () {
+                                          Navigator.of(ctx).pop();
+                                          permissionsCubit.openSettings();
+                                        },
+                                        child: const Text('Open App Settings'),
+                                      ),
+                                  ],
+                                ),
+                              );
+
+                              if (results.values
+                                  .any((s) => s.isPermanentlyDenied)) {
+                                await Future<void>.delayed(
+                                    const Duration(milliseconds: 200));
+                                await permissionsCubit.openSettings();
+                              }
+                            } finally {
+                              if (mounted) {
+                                setState(() {
+                                  _isRequestingPermissions = false;
+                                });
+                              }
+                            }
+                          },
+                    icon: _isRequestingPermissions
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.lock_open),
+                    label: const Text('Request permissions'),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: () => Navigator.of(context).pushNamed(
+                      AppRoutes.webView,
+                    ),
+                    child: const Text('Open Web View'),
+                  ),
+                  const SizedBox(height: 24),
+                  const Divider(),
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      await authCubit.signOut();
+                    },
+                    icon: const Icon(Icons.logout),
+                    label: const Text('Sign Out'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 32,
+                        vertical: 16,
+                      ),
+                      minimumSize: const Size(double.infinity, 56),
+                    ),
+                  ),
+                ],
               ),
-              child: const Text('Open Web View'),
             ),
-            const SizedBox(height: 24),
-            const Divider(),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: () async {
-                final authController =
-                    ref.read(authControllerProvider.notifier);
-                await authController.signOut();
-              },
-              icon: const Icon(Icons.logout),
-              label: const Text('Sign Out'),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 32,
-                  vertical: 16,
-                ),
-                minimumSize: const Size(double.infinity, 56),
-              ),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
